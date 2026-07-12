@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.zen/
+mlruns/
+mlflow.db
+data/*.csv
+.DS_Store
+INTERVIEW_PREP.md
+MODULE_QA.md
