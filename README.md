@@ -9,9 +9,20 @@ from Kaggle (~100k orders, 9 relational tables).
 
 The Kaggle dataset ships as 9 normalized CSVs (orders, payments, customers,
 order items, products, reviews, ...). [scripts/download_data.py](scripts/download_data.py)
-downloads them via `kagglehub` (no API key needed) and joins them into a
-single order-item-level table (117k rows × 33 cols) with the review score
-attached — the input to the training pipeline.
+downloads them via `kagglehub` (no API key needed), joins them, and then
+**aggregates back to one row per order** (97,916 orders).
+
+That last step matters. Joining items and payments to orders fans out — an
+order with 3 items and 2 payments becomes 6 rows sharing a single review
+score — which duplicates orders across the train/test split and inflates the
+score. Measured, with identical features and pipeline:
+
+| Grain | rows | R² |
+|-------|------|----|
+| Order-item (fanned out) | 117,329 | 0.089 ← inflated by duplicate rows |
+| **One row per order** | 97,916 | **0.025** ← honest |
+
+The model trains on the order grain, which is the grain the label lives at.
 
 **Stack:** Python · ZenML (orchestration) · MLflow (experiment tracking + model
 registry) · Scikit-learn (models) · Streamlit (serving UI)
@@ -23,8 +34,8 @@ registry) · Scikit-learn (models) · Streamlit (serving UI)
  ┌─────────────┐   ┌────────────┐   ┌─────────────┐   ┌────────────────┐
  │ ingest_data │──▶│ clean_data │──▶│ train_model │──▶│ evaluate_model │
  └─────────────┘   └────────────┘   └─────────────┘   └────────────────┘
-   read merged       select 12          fit model,        MSE/RMSE/R²,
-   CSV (117k rows)   features,          log params +      register model
+   read merged       engineer +         fit model,        MSE/RMSE/R²,
+   CSV (98k orders)  select 17 feats,   log params +      register model
                      impute NAs,        model to MLflow   only if R² gate
                      80/20 split                          passes
                                             │                   │
@@ -57,10 +68,26 @@ Key design points:
 
 ## Results
 
+Predicting the review score of a **delivered** order (95,829 orders, 17 features):
+
 | Model             | RMSE  | R²    | Registered? |
 |-------------------|-------|-------|-------------|
-| Linear regression | 1.385 | 0.017 | ❌ (below gate) |
-| Random forest     | 1.333 | 0.089 | ✅ |
+| Always guess the mean | 1.277 | 0.000 | — (baseline) |
+| Linear regression | 1.145 | 0.196 | ✅ |
+| **Random forest** | **1.124** | **0.225** | ✅ (serving) |
+
+### What moved the needle
+
+Delivery timing dominates: on-time orders average **4.29 stars**, late orders
+average **2.27**. Adding four date-derived features (`delivery_days`,
+`delay_vs_promise`, `is_late`, `approval_hours`) took R² from 0.025 to 0.225 —
+a **9x improvement** — and feature importance confirms they are the top three
+drivers, ahead of every price and product field.
+
+Because those features are only known after delivery, the model is scoped to
+**post-delivery triage** (flag an unhappy customer before they review), not
+at-purchase prediction. Orders never delivered (~2%, avg 1.76 stars) are
+dropped: a different failure mode, better served by a business rule than a model.
 
 ## Quickstart
 
@@ -116,7 +143,7 @@ python run_pipeline.py
 ## Project layout
 
 ```
-├── data/                    # merged Olist table (built from Kaggle raw CSVs)
+├── data/                    # order-level Olist table (built from Kaggle raw CSVs)
 ├── deployment/
 │   └── model.joblib         # bundled fallback model for the deployed app
 ├── scripts/
@@ -124,7 +151,7 @@ python run_pipeline.py
 │   └── export_model.py      # registry → deployment/model.joblib
 ├── src/
 │   ├── config.py            # single source of truth for MLflow URIs/names
-│   ├── data_cleaning.py     # feature selection, imputation, split
+│   ├── data_cleaning.py     # delivery feature engineering, imputation, split
 │   ├── model_dev.py         # model strategies (linear, random forest)
 │   └── evaluation.py        # regression metrics
 ├── steps/                   # ZenML steps (thin wrappers around src/)
