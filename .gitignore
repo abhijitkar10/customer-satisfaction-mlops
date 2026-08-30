@@ -8,3 +8,4 @@ data/*.csv
 .DS_Store
 INTERVIEW_PREP.md
 MODULE_QA.md
+.demo_logs/
