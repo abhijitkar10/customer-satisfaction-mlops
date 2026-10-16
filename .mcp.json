@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "knowledge-graph": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "/Users/abhijitkar/customer-satisfaction-mlops/.claude/skills/knowledge-graph/scripts/mcp-server.sh"
+      ],
+      "env": {
+        "KG_PROJECT_DIR": "/Users/abhijitkar/customer-satisfaction-mlops"
+      }
+    }
+  }
+}

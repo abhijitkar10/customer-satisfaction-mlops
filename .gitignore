@@ -9,3 +9,4 @@ data/*.csv
 INTERVIEW_PREP.md
 MODULE_QA.md
 .demo_logs/
+.knowledge-graph/
